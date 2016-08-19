@@ -10,7 +10,6 @@ Author: Alberto Griggio, alberto.griggio@gmail.com
 #include <solvers/refinement/string_refinement.h>
 #include <ansi-c/string_constant.h>
 #include <util/i2string.h>
-#include <util/replace_expr.h>
 #include <util/simplify_expr.h>
 #include <solvers/sat/satcheck.h>
 #include <sstream>
@@ -31,6 +30,7 @@ string_refinementt::string_refinementt(const namespacet &_ns, propt &_prop):
   string_char_set_func = "__CPROVER_uninterpreted_char_set";
   string_length_width = 32; // TODO!
   next_symbol_id = 1;
+  get_array_idxvar = fresh_symbol("get_array_idxvar", index_type());
 }
 
 
@@ -623,11 +623,12 @@ bool string_refinementt::check_axioms()
     }
 
     exprt negaxiom = and_exprt(axiom.premise, not_exprt(axiom.body));
-    replace_expr(fmodel, negaxiom);
+    eval_axiom_in_model(fmodel, negaxiom);
+    // replace_expr(fmodel, negaxiom);
 //    negaxiom = simplify_expr(negaxiom, ns);
 
     satcheck_no_simplifiert sat_check;
-    SUB solver(ns, sat_check);
+    bv_pointerst solver(ns, sat_check);
     solver << negaxiom;
 
     switch (solver()) {
@@ -668,6 +669,31 @@ bool string_refinementt::check_axioms()
            << " violated axioms" << eom;
   
   return false;
+}
+
+
+void string_refinementt::eval_axiom_in_model(const replace_mapt &model,
+                                             exprt &axiom)
+{
+  replace_mapt::const_iterator it = model.find(axiom);
+
+  if (it != model.end()) {
+      axiom = it->second;
+      return;
+  }
+
+  if (axiom.id() == ID_index) {
+    index_exprt &i = to_index_expr(axiom);
+    it = model.find(i.array());
+    assert(it != model.end());
+    exprt ite = it->second;
+    replace_expr(get_array_idxvar, i.index(), ite);
+    axiom = ite;
+  }
+
+  Forall_operands(it, axiom) {
+    eval_axiom_in_model(model, *it);
+  }
 }
 
 
@@ -962,17 +988,17 @@ exprt string_refinementt::get_array(const exprt &arr, const exprt &size)
   exprt val = get(arr);
   expect(val.id() == "array-list", "unable to get array-list value");
 
-  exprt ret =
-    array_of_exprt(to_unsignedbv_type(char_type()).zero_expr(),
-                   // array_typet(char_type(), size));
-                   array_typet(char_type(), infinity_exprt(integer_typet())));
+  exprt ret = to_unsignedbv_type(char_type()).zero_expr();
+    // array_of_exprt(to_unsignedbv_type(char_type()).zero_expr(),
+    //                // array_typet(char_type(), size));
+    //                array_typet(char_type(), infinity_exprt(integer_typet())));
 
   for (size_t i = 0; i < val.operands().size()/2; ++i) {
     exprt tmp_index = val.operands()[i*2];
     typecast_exprt idx(tmp_index, index_type());
     exprt tmp_value = val.operands()[i*2+1];
     typecast_exprt value(tmp_value, char_type());
-    ret = with_exprt(ret, idx, value);
+    ret = if_exprt(equal_exprt(get_array_idxvar, idx), value, ret);
   }
 
   return ret;

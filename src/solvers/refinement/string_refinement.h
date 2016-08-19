@@ -11,8 +11,8 @@ Author: Alberto Griggio, alberto.griggio@gmail.com
 #define CPROVER_SOLVER_STRING_REFINEMENT_H
 
 #include <langapi/language_ui.h>
-
 #include <solvers/refinement/bv_refinement.h>
+#include <util/replace_expr.h>
 
 class string_refinementt: public bv_refinementt
 {
@@ -87,6 +87,7 @@ protected:
   exprt make_array(const exprt &str);
   exprt make_length(const exprt &str);
   exprt get_array(const exprt &arr, const exprt &size);
+  void eval_axiom_in_model(const replace_mapt &model, exprt &axiom);
 
   void expect(bool cond, const char *errmsg=NULL);
 
@@ -110,6 +111,7 @@ protected:
   expr_sett seen_instances;
   index_sett index_set;
   unsigned next_symbol_id;
+  exprt get_array_idxvar;
 
   std::vector<exprt> cur;
 };
