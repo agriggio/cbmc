@@ -88,8 +88,20 @@ protected:
   exprt make_length(const exprt &str);
   exprt get_array(const exprt &arr, const exprt &size);
   void eval_axiom_in_model(const replace_mapt &model, exprt &axiom);
+  void lemma_set_to_true(const exprt &expr);
 
   void expect(bool cond, const char *errmsg=NULL);
+  struct debug_to_smt2t {
+    const string_refinementt *parent;
+    exprt expr;
+
+    debug_to_smt2t(const string_refinementt *p, const exprt &e):
+      parent(p), expr(e) {}
+  };
+  friend std::ostream &operator<<(std::ostream &out, const debug_to_smt2t &s);
+  
+  debug_to_smt2t debug_to_smt2(const exprt &expr) const;
+  std::string debug_to_smt2_str(const exprt &expr) const;
 
   irep_idt string_literal_func;
   irep_idt char_literal_func;

@@ -12,7 +12,16 @@ Author: Alberto Griggio, alberto.griggio@gmail.com
 #include <util/i2string.h>
 #include <util/simplify_expr.h>
 #include <solvers/sat/satcheck.h>
+#include <solvers/smt2/smt2_conv.h>
 #include <sstream>
+
+
+std::ostream &operator<<(std::ostream &out,
+                         const string_refinementt::debug_to_smt2t &s)
+{
+  out << s.parent->debug_to_smt2_str(s.expr);
+  return out;
+}
 
 
 string_refinementt::string_refinementt(const namespacet &_ns, propt &_prop):
@@ -42,7 +51,7 @@ string_refinementt::~string_refinementt()
 void string_refinementt::post_process()
 {
   for (size_t i = 0; i < cur.size(); ++i) {
-    set_to_true(cur[i]);
+    lemma_set_to_true(cur[i]);
   }
   
   // Ackermann expansion for string lengths
@@ -58,7 +67,7 @@ void string_refinementt::post_process()
 
       implies_exprt lemma(equal_exprt(si, sj), equal_exprt(leni, lenj));
       //prop.l_set_to_true(convert(lemma));
-      set_to_true(lemma);
+      lemma_set_to_true(lemma);
     }
   }
 
@@ -555,7 +564,7 @@ void string_refinementt::add_lemma(const exprt &lemma, bool immediately)
   cur.push_back(lemma);
   if (immediately) {
     //prop.l_set_to_true(convert(lemma));
-    set_to_true(lemma);
+    lemma_set_to_true(lemma);
   }
 }
 
@@ -611,6 +620,11 @@ bool string_refinementt::check_axioms()
     exprt arr = get_array(a, len);
     fmodel[l] = len;
     fmodel[a] = arr;
+
+    debug() << "model: " << debug_to_smt2(l) << " := " << debug_to_smt2(len)
+            << eom;
+    debug() << "       " << debug_to_smt2(a) << " := " << debug_to_smt2(arr)
+            << "\n" << eom;
   }
 
   std::vector< std::pair<size_t, exprt> > violated;
@@ -622,10 +636,16 @@ bool string_refinementt::check_axioms()
       fmodel[axiom.lit] = lit;
     }
 
+    debug() << "checking axiom " << i << ": "
+            << "(=> " << debug_to_smt2(axiom.premise) << " "
+            << debug_to_smt2(axiom.body) << ")" << eom;
+
     exprt negaxiom = and_exprt(axiom.premise, not_exprt(axiom.body));
     eval_axiom_in_model(fmodel, negaxiom);
     // replace_expr(fmodel, negaxiom);
 //    negaxiom = simplify_expr(negaxiom, ns);
+
+    debug() << "evaluated: " << debug_to_smt2(negaxiom) << eom;
 
     satcheck_no_simplifiert sat_check;
     bv_pointerst solver(ns, sat_check);
@@ -635,12 +655,18 @@ bool string_refinementt::check_axioms()
     case decision_proceduret::D_SATISFIABLE: {
       exprt val = solver.get(axiom.idx);
       violated.push_back(std::make_pair(i, val));
+      debug() << "violated, witness: "
+              << debug_to_smt2(axiom.idx) << " := " << debug_to_smt2(val)
+              << eom;
     } break;
     case decision_proceduret::D_UNSATISFIABLE:
+      debug() << "valid!" << eom;
       break;
     default:
       expect(false, "failure in checking axiom");
     }
+
+    debug() << eom;
   }
 
   if (violated.empty()) {
@@ -654,13 +680,17 @@ bool string_refinementt::check_axioms()
              << " violated by index "
              << to_constant_expr(val).get_value() << eom;
     const string_axiomt &axiom = string_axioms[violated[i].first];
-    exprt premise(axiom.premise);
-    exprt body(axiom.body);
+    exprt premise = axiom.premise;
+    exprt body = axiom.body;
     replace_expr(axiom.idx, val, premise);
     replace_expr(axiom.idx, val, body);
     implies_exprt instance(premise, body);
     if (seen_instances.insert(instance).second) {
       add_lemma(instance, true);
+    } else {
+      error() << "string-refinement: ** unexpected violation of an already added axiom instance! **" << eom;
+      assert(false);
+      throw "error";
     }
     // TODO - add backwards instantiations
   }
@@ -977,7 +1007,7 @@ exprt string_refinementt::make_array(const exprt &str)
   }
   symbol_exprt arr = fresh_symbol("string_array",
                                   array_typet(char_type(),
-                                              infinity_exprt(integer_typet())));
+                                              infinity_exprt(index_type())));
   string2array[str] = arr;
   return arr;
 }
@@ -1005,10 +1035,36 @@ exprt string_refinementt::get_array(const exprt &arr, const exprt &size)
 }
 
 
+inline void string_refinementt::lemma_set_to_true(const exprt &expr)
+{
+    set_to_true(expr);
+    debug() << "string-refinement: adding lemma: "
+            << debug_to_smt2(expr) << eom;
+}
+
+
+
 void string_refinementt::expect(bool cond, const char *msg)
 {
   assert(cond);
   if (!cond) {
     throw (msg ? msg : "assertion failure!");
   }
+}
+
+
+string_refinementt::debug_to_smt2t string_refinementt::debug_to_smt2(
+  const exprt &expr) const
+{
+  return debug_to_smt2t(this, expr);
+}
+
+
+std::string string_refinementt::debug_to_smt2_str(const exprt &expr) const
+{
+  std::ostringstream buf;
+  smt2_convt solver(ns, "", "", "", smt2_convt::Z3, buf);
+  buf.str("");
+  solver.convert_expr(expr);
+  return buf.str();
 }
